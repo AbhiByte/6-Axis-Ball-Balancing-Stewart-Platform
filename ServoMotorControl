@@ -1,0 +1,56 @@
+/*Adesh P Singh*/
+
+#include <Wire.h>
+
+const int SDA_Pin = 20;
+const int SCL_Pin = 21;
+int receivedData = 0;  // Variable to store received data
+
+void setup() {
+  // Arduino joins I2C bus as a slave with address 0x8
+  Wire.begin(0x8);
+
+  // Call receiveEvent function when data is received
+  Wire.onReceive(receiveEvent);
+
+  // Turn off the built-in pull-up resistors for SDA and SCL
+  digitalWrite(SDA_Pin, LOW);
+  digitalWrite(SCL_Pin, LOW);
+
+  // Start serial communication for debugging
+  Serial.begin(9600);
+}
+
+void loop() {
+  // Map received data from 1-255 to 1000-2000 (microseconds range for servo)
+  int servoPosition = map(receivedData, 1, 255, 1000, 2000);
+
+  // Call setServoPosition with the mapped position value
+  setServoPosition(1, servoPosition);  // Send the mapped data to control the servo
+  delay(1000);  // Wait for 1 second
+}
+
+// Function that executes whenever data is received from the Raspberry Pi
+void receiveEvent(int howMany) {
+  if (Wire.available()) {
+    receivedData = Wire.read();  // Read the received byte and store it
+    Serial.print("Received Data: ");
+    Serial.println(receivedData);  // Print the received data for debugging
+  }
+}
+
+// Function to set the servo position
+void setServoPosition(uint8_t channel, uint16_t position) {
+  // Convert position to units of quarter-microseconds
+  uint16_t target = position * 4;
+
+  // Send the Pololu Maestro protocol for setting the servo position
+  Serial.write(0x84);           // Command byte: 0x84 for 'Set Target'
+  Serial.write(channel);        // Channel number
+  Serial.write(target & 0x7F);  // Lower 7 bits of the target
+  Serial.write((target >> 7) & 0x7F); // Upper 7 bits of the target
+
+  // Debugging: print the servo target position
+  Serial.print("Servo Position Set To (microseconds): ");
+  Serial.println(position);
+}
