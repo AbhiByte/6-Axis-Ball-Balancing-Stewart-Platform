@@ -1,0 +1,41 @@
+#include <Wire.h>
+
+volatile int message_id = 0; // Stores the latest message ID
+volatile int x_coord = 0;    // Stores the latest x-coordinate
+volatile int y_coord = 0;    // Stores the latest y-coordinate
+bool dataReceived = false;   // Flag to indicate new data has been received
+
+void setup() {
+  // Initialize I2C communication with address 0x8 (same as Raspberry Pi script)
+  Wire.begin(0x8); 
+  // Define the function to execute whenever data is received from master
+  Wire.onReceive(receiveEvent);
+
+  // Initialize Serial Monitor for debugging
+  Serial.begin(9600);
+}
+
+void loop() {
+  if (dataReceived) {
+    // Print the message ID and coordinates to the Serial Monitor
+    Serial.print("Message ID: "); Serial.print(message_id);
+    Serial.print(" X: "); Serial.print(x_coord);
+    Serial.print(" Y: "); Serial.println(y_coord);
+
+    // Reset dataReceived flag after reading data
+    dataReceived = false;
+  }
+
+  // Small delay to prevent overwhelming the Serial Monitor
+  delay(100);
+}
+
+// Function to handle received I2C data
+void receiveEvent(int howMany) {
+  if (howMany >= 3) {          // Expecting 3 bytes (message_id, x, and y coordinates)
+    message_id = Wire.read();   // Read message ID
+    x_coord = Wire.read();      // Read x-coordinate
+    y_coord = Wire.read();      // Read y-coordinate
+    dataReceived = true;        // Set flag to indicate new data
+  }
+}
