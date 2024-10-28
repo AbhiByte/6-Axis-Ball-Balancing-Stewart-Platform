@@ -1,0 +1,80 @@
+import cv2 as cv
+import numpy as np
+from smbus2 import SMBus
+import time
+
+# Define I2C address for Arduino
+ARDUINO_I2C_ADDRESS = 0x8  # Ensure this matches the address in your Arduino code
+
+# Initialize I2C bus
+bus = SMBus(1)  # '1' is the I2C bus on most Raspberry Pi models
+
+# Message ID for coordinate data
+MESSAGE_ID = 0x01  # Optional ID for tracking purposes
+
+# Define a function to detect a yellow ball
+def detect_yellow_ball():
+    # Start capturing video from the webcam
+    cap = cv.VideoCapture(0)
+    cap.set(cv.CAP_PROP_FPS, 30)
+    
+    while True:
+        # Read a frame from the webcam
+        ret, frame = cap.read()
+        if not ret:
+            print("Failed to grab frame")
+            break
+        
+        # Set the image resolution to 255x255 to keep coordinates within I2C byte range
+        frame = cv.resize(frame, (255, 255))
+
+        # Convert the frame to HSV color space
+        hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+
+        # Define the range of yellow color in HSV
+        ball_color_lower = np.array([20, 100, 100])
+        ball_color_upper = np.array([30, 255, 255])
+
+        # Create a mask for yellow color
+        mask = cv.inRange(hsv, ball_color_lower, ball_color_upper)
+
+        # Find contours in the mask
+        contours, _ = cv.findContours(mask, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+
+        # Find the largest contour
+        if contours:
+            largest_contour = max(contours, key=cv.contourArea)
+            ((x, y), radius) = cv.minEnclosingCircle(largest_contour)
+            if radius > 10:  # Ignore small objects
+                # Draw a circle around the detected ball
+                cv.circle(frame, (int(x), int(y)), int(radius), (0, 255, 255), 2)
+                cv.circle(frame, (int(x), int(y)), 2, (0, 0, 255), -1)
+                
+                # Display coordinates on the console
+                print(f"Yellow ball detected at position: ({int(x)}, {int(y)})")
+
+                # Send coordinates to Arduino over I2C
+                try:
+                    # Convert coordinates to integers and send as bytes
+                    #bus.write_i2c_block_data(ARDUINO_I2C_ADDRESS, 0, [ int(x), int(y)])
+                    bus.write_i2c_block_data(ARDUINO_I2C_ADDRESS, MESSAGE_ID, [int(x), int(y)])
+
+                    #bus.write_byte(ARDUINO_I2C_ADDRESS, int(x))
+                    #bus.write_byte(ARDUINO_I2C_ADDRESS, int(y))
+                    # 0x01 is an optional message ID for "coordinate data"
+                except Exception as e:
+                    print(f"I2C Error: {e}")
+        
+        # Display the resulting frame
+        cv.imshow('frame', frame)
+
+        # Break the loop when 'q' is pressed
+        if cv.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # Release the capture and close windows
+    cap.release()
+    cv.destroyAllWindows()
+
+# Run the ball detection function
+detect_yellow_ball()
