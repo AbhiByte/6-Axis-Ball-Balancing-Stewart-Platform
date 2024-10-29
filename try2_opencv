@@ -1,0 +1,115 @@
+import cv2 as cv
+import numpy as np
+from smbus2 import SMBus
+import time
+import math
+
+# Define I2C address for Arduino
+ARDUINO_I2C_ADDRESS = 0x08  # Ensure this matches the address in your Arduino code
+
+# Initialize I2C bus
+bus = SMBus(1)  # '1' is the I2C bus on most Raspberry Pi models
+
+# Message ID for coordinate data
+MESSAGE_ID = 0x01  # Optional ID for tracking purposes
+
+# Constants for marker detection
+abs_0 = 4000
+abs_90 = 8000
+
+# Accumulation variables
+X_total, Y_total, r_platform_total = 0, 0, 0
+j = 0
+
+# Function to send coordinates to Arduino
+def send_coordinates_to_arduino(x, y, r_platform):
+    try:
+        # Convert x, y, r_platform to integers within 0-255 range
+        x, y, r_platform = int(x) & 0xFF, int(y) & 0xFF, int(r_platform) & 0xFF
+        # Send coordinates and radius to Arduino
+        bus.write_i2c_block_data(ARDUINO_I2C_ADDRESS, MESSAGE_ID, [x, y, r_platform])
+    except Exception as e:
+        print(f"I2C Error: {e}")
+
+# Function to detect markers and calculate center and radius
+def detect_markers():
+    global X_total, Y_total, r_platform_total, j
+
+    # Start capturing video from the webcam
+    cap = cv.VideoCapture(0)
+    cap.set(cv.CAP_PROP_FPS, 30)
+
+    while True:
+        # Read a frame from the webcam
+        ret, frame = cap.read()
+        if not ret:
+            print("Failed to grab frame")
+            break
+
+        # Resize to keep coordinates within I2C byte range
+        frame = cv.resize(frame, (255, 255))
+
+        # Convert to HSV color space
+        hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+
+        # Define the range for detecting markers (example with yellow)
+        marker_color_lower = np.array([20, 100, 100])
+        marker_color_upper = np.array([30, 255, 255])
+
+        # Create a mask for the marker color
+        mask = cv.inRange(hsv, marker_color_lower, marker_color_upper)
+
+        # Find contours in the mask
+        contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+        # Process if exactly 4 markers are detected
+        if len(contours) == 4:
+            X, Y = 0, 0
+            marker_positions = []
+
+            # Calculate centroids for each contour
+            for contour in contours:
+                M = cv.moments(contour)
+                if M['m00'] != 0:
+                    cx = int(M['m10'] / M['m00'])
+                    cy = int(M['m01'] / M['m00'])
+                    X += cx
+                    Y += cy
+                    marker_positions.append((cx, cy))
+
+            X /= 4
+            Y /= 4
+
+            # Calculate r_platform
+            r_platform = sum(math.sqrt((cx - X) ** 2 + (cy - Y) ** 2) for cx, cy in marker_positions) / 4
+
+            # Accumulate totals for averaging
+            X_total += X
+            Y_total += Y
+            r_platform_total += r_platform
+            j += 1
+
+            # Send data to Arduino
+            send_coordinates_to_arduino(X, Y, r_platform)
+
+        # Display the frame with markers highlighted
+        cv.imshow('Marker Detection', frame)
+
+        # Break loop if 'q' is pressed
+        if cv.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # Calculate and print final averages
+    X_avg = X_total / j if j != 0 else 0
+    Y_avg = Y_total / j if j != 0 else 0
+    r_platform_avg = r_platform_total / j if j != 0 else 0
+
+    print(f"Final CENTER: [{int(X_avg)}, {int(Y_avg)}]")
+    print(f"Final r_platform: {int(r_platform_avg)}")
+
+    # Release resources
+    cap.release()
+    cv.destroyAllWindows()
+
+# Run marker detection function
+detect_markers()
