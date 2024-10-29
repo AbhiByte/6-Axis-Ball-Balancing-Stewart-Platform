@@ -1,0 +1,112 @@
+# Import necessary libraries
+import cv2
+import time
+import math
+import serial
+
+# Initialize serial communication
+ser = serial.Serial('/dev/ttyS0', 9600)  # Serial port for Raspberry Pi, adjust as needed
+
+# Constants
+abs_0 = 4000  # ms position of absolute 0 degrees
+abs_90 = 8000  # ms position of absolute 90 degrees
+
+# User-defined values
+range_vals = [
+    [-45, 45], [45, -45],  # a1, a2
+    [-45, 45], [45, -45],  # b1, b2
+    [-45, 45], [45, -45]   # c1, c2
+]
+offset = [0, 0, 0, 0, 0, 0]
+
+# Initialize position variables
+X_total, Y_total, r_platform_total = 0, 0, 0
+j = 0
+
+# Function to map values (similar to Arduino's map function)
+def map_value(x, in_min, in_max, out_min, out_max):
+    return int((x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min)
+
+# Function to control servos (assuming pigpio library, adjust as necessary)
+def set_servo_position(channel, angle):
+    pos = map_value(offset[channel], range_vals[channel][0], range_vals[channel][1], abs_0, abs_90)
+    # Here, send pos to the servo control logic
+
+# Function to detect markers and calculate center and radius
+def detect_markers(frame):
+    global X_total, Y_total, r_platform_total, j
+
+    # Convert frame to HSV for color-based detection (modify as needed for your markers)
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    
+    # Define color range for markers (adjust to the marker color)
+    lower_bound = (30, 100, 100)  # example for green
+    upper_bound = (90, 255, 255)
+    
+    # Threshold the image to get only markers
+    mask = cv2.inRange(hsv, lower_bound, upper_bound)
+    
+    # Find contours in the mask
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if len(contours) == 4:  # Proceed if 4 markers are detected
+        X, Y = 0, 0
+        marker_positions = []
+
+        for contour in contours:
+            M = cv2.moments(contour)
+            if M['m00'] != 0:
+                cx = int(M['m10'] / M['m00'])
+                cy = int(M['m01'] / M['m00'])
+                X += cx
+                Y += cy
+                marker_positions.append((cx, cy))
+
+        X /= 4
+        Y /= 4
+
+        # Calculate r_platform based on distances from center to markers
+        r_platform = sum(math.sqrt((cx - X) ** 2 + (cy - Y) ** 2) for cx, cy in marker_positions) / 4
+
+        # Accumulate values for averaging
+        X_total += X
+        Y_total += Y
+        r_platform_total += r_platform
+        j += 1
+
+def setup():
+    # Initialize all servos to 0 degrees
+    for i in range(6):
+        set_servo_position(i, 0)
+    time.sleep(1)
+
+def loop():
+    global X_total, Y_total, r_platform_total, j
+
+    cap = cv2.VideoCapture(0)  # Initialize camera (0 for default camera)
+    if not cap.isOpened():
+        print("Error: Camera not accessible.")
+        return
+
+    for k in range(100):
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        detect_markers(frame)
+
+    # Calculate averages
+    X_avg = X_total / j if j != 0 else 0
+    Y_avg = Y_total / j if j != 0 else 0
+    r_platform_avg = r_platform_total / j if j != 0 else 0
+
+    # Print results
+    print(f"CENTER: [{int(X_avg)}, {int(Y_avg)}]")
+    print(f"r platform: {int(r_platform_avg)}")
+
+    cap.release()
+
+# Main execution
+if __name__ == "__main__":
+    setup()
+    loop()
