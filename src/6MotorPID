@@ -1,0 +1,145 @@
+#include <Wire.h>
+
+// I2C Constants
+const int SDA_Pin = 20;
+const int SCL_Pin = 21;
+
+// Servo channels for the 6 platform actuators
+const uint8_t SERVO_1 = 0;
+const uint8_t SERVO_2 = 1;
+const uint8_t SERVO_3 = 2;
+const uint8_t SERVO_4 = 3;
+const uint8_t SERVO_5 = 4;
+const uint8_t SERVO_6 = 5;
+
+// Platform servo neutral positions (microseconds)
+// Adjust these values to set the platform perfectly level
+const int NEUTRAL_1 = 1500;
+const int NEUTRAL_2 = 1500;
+const int NEUTRAL_3 = 1500;
+const int NEUTRAL_4 = 1500;
+const int NEUTRAL_5 = 1500;
+const int NEUTRAL_6 = 1500;
+
+// PID constants
+struct PIDConstants {
+    float kp;
+    float ki;
+    float kd;
+} xPID = {1.0, 0.5, 0.025},
+  yPID = {1.0, 0.5, 0.025};
+
+// PID variables
+struct PIDVariables {
+    float integral;
+    float errorPrev;
+    long prevT;
+} xVars = {0, 0, 0},
+  yVars = {0, 0, 0};
+
+// Integral limits
+const float MAX_INTEGRAL = 100.0;
+const float MIN_INTEGRAL = -100.0;
+
+// Ball position variables
+volatile int message_id = 0;
+volatile int x_coord = 0;
+volatile int y_coord = 0;
+bool dataReceived = false;
+
+// Target position (center of platform)
+const int TARGET_X = 128;
+const int TARGET_Y = 128;
+
+// Maximum tilt angles (in servo microseconds deviation from neutral)
+const int MAX_TILT = 500;  // Maximum microseconds deviation from neutral
+
+void setup() {
+  Wire.begin(0x8);
+  Wire.onReceive(receiveEvent);
+  digitalWrite(SDA_Pin, LOW);
+  digitalWrite(SCL_Pin, LOW);
+  Serial.begin(9600);
+  
+  // Initialize platform to neutral position
+  setAllServosNeutral();
+}
+
+void loop() {
+  if (dataReceived) {
+    // Calculate PID outputs for X and Y axes
+    float x_output = calculatePID(x_coord, TARGET_X, xVars, xPID);
+    float y_output = calculatePID(y_coord, TARGET_Y, yVars, yPID);
+    
+    // Convert X,Y tilt commands to six servo positions
+    updatePlatformTilt(x_output, y_output);
+    
+    dataReceived = false;
+  }
+  delay(20);
+}
+
+float calculatePID(int current, int target, PIDVariables &vars, PIDConstants &constants) {
+  long currT = micros();
+  float deltaT = ((float)(currT - vars.prevT)) / 1.0e6;
+  vars.prevT = currT;
+
+  int error = target - current;
+  vars.integral = constrain(vars.integral + error * deltaT, MIN_INTEGRAL, MAX_INTEGRAL);
+  float derivative = (error - vars.errorPrev) / deltaT;
+  vars.errorPrev = error;
+
+  return constants.kp * error + 
+         constants.ki * vars.integral + 
+         constants.kd * derivative;
+}
+
+void updatePlatformTilt(float x_tilt, float y_tilt) {
+  // Convert PID outputs to servo offsets
+  // These calculations will need to be adjusted based on your platform geometry
+  int x_offset = constrain(map(x_tilt, 0, 255, -MAX_TILT, MAX_TILT), -MAX_TILT, MAX_TILT);
+  int y_offset = constrain(map(y_tilt, 0, 255, -MAX_TILT, MAX_TILT), -MAX_TILT, MAX_TILT);
+  
+  // Calculate individual servo positions based on platform geometry
+  // This is a simplified example - you'll need to adjust these calculations
+  // based on your specific platform design and servo arrangements
+  setServoPosition(SERVO_1, NEUTRAL_1 + x_offset + y_offset);
+  setServoPosition(SERVO_2, NEUTRAL_2 - x_offset + y_offset);
+  setServoPosition(SERVO_3, NEUTRAL_3 + x_offset - y_offset);
+  setServoPosition(SERVO_4, NEUTRAL_4 - x_offset - y_offset);
+  setServoPosition(SERVO_5, NEUTRAL_5 + y_offset);
+  setServoPosition(SERVO_6, NEUTRAL_6 - y_offset);
+  
+  // Debug output
+  Serial.print("X_tilt: "); Serial.print(x_tilt);
+  Serial.print(" Y_tilt: "); Serial.print(y_tilt);
+  Serial.print(" X_offset: "); Serial.print(x_offset);
+  Serial.print(" Y_offset: "); Serial.println(y_offset);
+}
+
+void setAllServosNeutral() {
+  setServoPosition(SERVO_1, NEUTRAL_1);
+  setServoPosition(SERVO_2, NEUTRAL_2);
+  setServoPosition(SERVO_3, NEUTRAL_3);
+  setServoPosition(SERVO_4, NEUTRAL_4);
+  setServoPosition(SERVO_5, NEUTRAL_5);
+  setServoPosition(SERVO_6, NEUTRAL_6);
+}
+
+void setServoPosition(uint8_t channel, uint16_t position) {
+  position = constrain(position, 1000, 2000);  // Safety constraint
+  uint16_t target = position * 4;
+  Serial.write(0x84);
+  Serial.write(channel);
+  Serial.write(target & 0x7F);
+  Serial.write((target >> 7) & 0x7F);
+}
+
+void receiveEvent(int howMany) {
+  if (howMany >= 3) {
+    message_id = Wire.read();
+    x_coord = Wire.read();
+    y_coord = Wire.read();
+    dataReceived = true;
+  }
+}
