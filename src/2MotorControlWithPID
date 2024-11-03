@@ -1,0 +1,108 @@
+#include <Wire.h>
+
+// I2C Constants
+const int SDA_Pin = 20;
+const int SCL_Pin = 21;
+
+// Servo channels
+const uint8_t X_SERVO_CHANNEL = 1;
+const uint8_t Y_SERVO_CHANNEL = 2;
+
+// PID constants
+float kp = 1.0;
+float kd = 0.025;
+float ki = 0.5;
+
+// PID variables for X axis
+float integralX = 0;
+float errorPrevX = 0;
+long prevTX = 0;
+
+// PID variables for Y axis
+float integralY = 0;
+float errorPrevY = 0;
+long prevTY = 0;
+
+// Integral limits
+const float MAX_INTEGRAL = 100.0;
+const float MIN_INTEGRAL = -100.0;
+
+// Camera coordinates
+volatile int message_id = 0;
+volatile int x_coord = 0;
+volatile int y_coord = 0;
+bool dataReceived = false;
+
+// Target position (center of frame)
+const int TARGET_X = 128;  // Assuming 256x256 frame
+const int TARGET_Y = 128;
+
+void setup() {
+  // Initialize I2C
+  Wire.begin(0x8);
+  Wire.onReceive(receiveEvent);
+  digitalWrite(SDA_Pin, LOW);
+  digitalWrite(SCL_Pin, LOW);
+  
+  Serial.begin(9600);
+}
+
+void loop() {
+  if (dataReceived) {
+    // Run PID control for both axes
+    performPID(x_coord, TARGET_X, X_SERVO_CHANNEL, integralX, errorPrevX, prevTX);
+    performPID(y_coord, TARGET_Y, Y_SERVO_CHANNEL, integralY, errorPrevY, prevTY);
+    dataReceived = false;
+  }
+  
+  delay(50);  // Small delay to prevent overwhelming the system
+}
+
+void performPID(int current, int target, uint8_t servoChannel, float &integral, float &errorPrev, long &prevT) {
+  // Time calculation
+  long currT = micros();
+  float deltaT = ((float)(currT - prevT)) / (1.0e6);
+  prevT = currT;
+
+  // Error calculation
+  int error = target - current;
+  
+  // PID terms
+  integral = integral + error * deltaT;
+  integral = constrain(integral, MIN_INTEGRAL, MAX_INTEGRAL);
+  float derivative = (error - errorPrev) / deltaT;
+  errorPrev = error;
+
+  // Calculate PID output
+  float output = kp * error + kd * derivative + ki * integral;
+  
+  // Convert PID output to servo position (1000-2000 microseconds)
+  int servoPosition = map(constrain(output, 0, 255), 0, 255, 1000, 2000);
+
+  // Debug output
+  Serial.print("Channel: "); Serial.print(servoChannel);
+  Serial.print(" Error: "); Serial.print(error);
+  Serial.print(" Output: "); Serial.print(output);
+  Serial.print(" Servo Pos: "); Serial.println(servoPosition);
+
+  // Move servo
+  setServoPosition(servoChannel, servoPosition);
+}
+
+void setServoPosition(uint8_t channel, uint16_t position) {
+  uint16_t target = position * 4;  // Convert to quarter-microseconds
+  
+  Serial.write(0x84);  // Command byte for 'Set Target'
+  Serial.write(channel);
+  Serial.write(target & 0x7F);
+  Serial.write((target >> 7) & 0x7F);
+}
+
+void receiveEvent(int howMany) {
+  if (howMany >= 3) {
+    message_id = Wire.read();
+    x_coord = Wire.read();
+    y_coord = Wire.read();
+    dataReceived = true;
+  }
+}
