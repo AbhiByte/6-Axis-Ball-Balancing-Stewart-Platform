@@ -70,6 +70,11 @@ float nz = 1;                        // nz is predefined
 float hz_norm = 118.19374266158451;  // normal hz value (at this height all servos are at 0 degrees)
 float r_max = 0.25;                  // max radius of the nx and ny graph when nz = 1
 
+// Add these constants at the top with other constants
+const uint16_t MIN_PULSE = 4000;  // Minimum pulse width
+const uint16_t MAX_PULSE = 8000;  // Maximum pulse width
+const uint16_t NEUTRAL_PULSE = 6000;  // Neutral position
+
 void setup() {
     Wire.begin(ARDUINO_I2C_ADDRESS);
     Wire.onReceive(receiveEvent);
@@ -151,24 +156,57 @@ void updatePlatform() {
 // ... (keep all the existing helper functions from BallBalance.ino)
 // Including: moveServo(), moveServos(), stop(), InverseKinematics(), mag(), dot() 
 
-void moveServo(int i, float pos, int spd, int acc) {        //moves servo i to an input position at a certain speed and acceleration value
-  pos = pos + offset[i];                                    //adds offset amount to the input position
-  pos = map(pos, range[i][0], range[i][1], abs_0, abs_90);  //converts input pos to ms position
-  maestro.setSpeed(i, spd);                                 //sets input speed to servo i
-  maestro.setAcceleration(i, spd);                          //sets input acceleration to servo i
-  maestro.setTarget(i, pos);                                //drives motor to calculated position
+void moveServo(int i, float pos, int spd, int acc) {
+    // Add position constraints and error checking
+    pos = constrain(pos + offset[i], -40, 40);  // Constrain to safe angles
+    
+    // Map angle to pulse width
+    uint16_t pulse = map(pos, range[i][0], range[i][1], abs_0, abs_90);
+    pulse = constrain(pulse, MIN_PULSE, MAX_PULSE);
+    
+    // Debug output
+    Serial.print("Servo ");
+    Serial.print(ID[i]);
+    Serial.print(": Angle=");
+    Serial.print(pos);
+    Serial.print(" Pulse=");
+    Serial.println(pulse);
+    
+    // Set servo parameters
+    maestro.setSpeed(i, spd);
+    maestro.setAcceleration(i, acc);
+    maestro.setTarget(i, pulse);
 }
 
-
-void moveServos(int spd, int acc) {  //moves servos to their calculated positions at a certain speed and acceleration value
-  float pos;
-  for (int i = 0; i < 6; i++) {
-    maestro.setSpeed(i, spd);                                 //sets input speed to servo i
-    maestro.setAcceleration(i, acc);                          //sets input acceleration to servo i
-    pos = theta[i] + offset[i];                               //adds offset amount to the calculated angle
-    pos = map(pos, range[i][0], range[i][1], abs_0, abs_90);  //converts input pos to ms position
-    maestro.setTarget(i, pos);                                //drives motor to calculated position
-  }
+void moveServos(int spd, int acc) {
+    for (int i = 0; i < 6; i++) {
+        // Get angle from inverse kinematics
+        float pos = theta[i];
+        
+        // Add safety checks
+        if (isnan(pos) || isinf(pos)) {
+            Serial.print("Error: Invalid angle for servo ");
+            Serial.println(ID[i]);
+            stop();
+            return;
+        }
+        
+        // Move each servo
+        moveServo(i, pos, spd, acc);
+    }
+    
+    // Debug output platform state
+    Serial.println("Platform State:");
+    Serial.print("Ball pos: (");
+    Serial.print(ball[0]);
+    Serial.print(",");
+    Serial.print(ball[1]);
+    Serial.println(")");
+    Serial.print("Output: (");
+    Serial.print(out[0]);
+    Serial.print(",");
+    Serial.print(out[1]);
+    Serial.println(")");
 }
 
 void stop() {  //ends the program and stops all of the servos
@@ -262,7 +300,7 @@ void InverseKinematics(float hx, float hy, float hz, float nx, float ny, float a
   // c2
   c2f[x] = 2 * c[x] - c1f[x];                                           // c2fx
   c2f[y] = 2 * c[y] - c1f[y];                                           // c2fy
-  c2f[z] = 2 * c[z] - c1f[z];                                           // c2fzSerial.println("-----------------------");
+  c2f[z] = 2 * c[z] - c1f[z];                                           // c2fz
   float c2[3] = { c2f[x] - c20[x], c2f[y] - c20[y], c2f[z] - c20[z] };  // vector 'c2'
 
   //**STAGE 3 CALCULATIONS**
@@ -392,4 +430,11 @@ void initializePlatformGeometry() {
     bc[0] = b20[0] - c10[0];
     bc[1] = b20[1] - c10[1];
     bc[2] = b20[2] - c10[2];
+}
+
+// Add a function to return to neutral position
+void setAllServosNeutral() {
+    for (int i = 0; i < 6; i++) {
+        maestro.setTarget(i, NEUTRAL_PULSE);
+    }
 }
