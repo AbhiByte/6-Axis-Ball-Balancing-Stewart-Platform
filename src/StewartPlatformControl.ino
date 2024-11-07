@@ -21,8 +21,8 @@ float p1 = 31.75;
 float p2 = 129;
 
 // Servo constants
-float abs_0 = 4000;    // ms position of absolute 0 degrees
-float abs_90 = 8000;   // ms position of absolute 90 degrees
+float abs_0 = 1000;    // us position of absolute 0 degrees
+float abs_90 = 2000;   // us position of absolute 90 degrees
 float toDeg = 180/PI;  // radians to degrees conversion
 
 // Array indices
@@ -71,9 +71,9 @@ float hz_norm = 118.19374266158451;  // normal hz value (at this height all serv
 float r_max = 0.25;                  // max radius of the nx and ny graph when nz = 1
 
 // Add these constants at the top with other constants
-const uint16_t MIN_PULSE = 4000;  // Minimum pulse width
-const uint16_t MAX_PULSE = 8000;  // Maximum pulse width
-const uint16_t NEUTRAL_PULSE = 6000;  // Neutral position
+const uint16_t MIN_PULSE = 1000;   // Minimum pulse width (us)
+const uint16_t MAX_PULSE = 2000;   // Maximum pulse width (us)
+const uint16_t NEUTRAL_PULSE = 1500;  // Neutral position (us)
 
 void setup() {
     Wire.begin(ARDUINO_I2C_ADDRESS);
@@ -160,7 +160,7 @@ void moveServo(int i, float pos, int spd, int acc) {
     // Add position constraints and error checking
     pos = constrain(pos + offset[i], -40, 40);  // Constrain to safe angles
     
-    // Map angle to pulse width
+    // Map angle to pulse width (1000-2000us range)
     uint16_t pulse = map(pos, range[i][0], range[i][1], abs_0, abs_90);
     pulse = constrain(pulse, MIN_PULSE, MAX_PULSE);
     
