@@ -143,10 +143,10 @@ def detect_ball_and_platform():
     cv.destroyAllWindows()
     
 
-def send_data_to_arduino(x=0, y=0, velocity_x=0, velocity_y=0, adjusted_x=0, adjusted_y=0):
+def send_data_to_arduino(x=0, y=0, velocity_x=0, velocity_y=0, adjusted_x=0, adjusted_y=0, row=0, col=0):
     try:
         # Send position data to Arduino
-        bus.write_i2c_block_data(ARDUINO_I2C_ADDRESS, MESSAGE_ID, [int(x), int(y), int(velocity_x), int(velocity_y), row, col])
+        bus.write_i2c_block_data(ARDUINO_I2C_ADDRESS, MESSAGE_ID, [int(x), int(y), int(velocity_x), int(velocity_y), int(adjusted_x), int(adjusted_y), row, col])
         # Optionally send velocity data as well
         # You might need to scale/convert velocity values to fit in a byte
     except Exception as e:
