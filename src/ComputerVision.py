@@ -129,8 +129,10 @@ def detect_ball_and_platform():
             center_y = sum(p[1] for p in corner_points) / 4
             cv.circle(frame, (int(center_x), int(center_y)), 5, (255, 0, 0), -1)
             print(f"Platform Center: ({int(center_x)}, {int(center_y)})")
-        
-        send_data_to_arduino()
+
+            # Calculate coordinates of ball relative to center of platform
+            ball_x_adjusted, ball_y_adjusted = x - center_x, y - center_y
+        send_data_to_arduino(x, y, velocity_x, velocity_y, ball_x_adjusted, ball_y_adjusted)
 
         # Display frame with annotations
         cv.imshow('frame', frame)
@@ -141,7 +143,7 @@ def detect_ball_and_platform():
     cv.destroyAllWindows()
     
 
-def send_data_to_arduino(x, y, velocity_x, velocity_y, row, col):
+def send_data_to_arduino(x=0, y=0, velocity_x=0, velocity_y=0, adjusted_x=0, adjusted_y=0):
     try:
         # Send position data to Arduino
         bus.write_i2c_block_data(ARDUINO_I2C_ADDRESS, MESSAGE_ID, [int(x), int(y), int(velocity_x), int(velocity_y), row, col])
