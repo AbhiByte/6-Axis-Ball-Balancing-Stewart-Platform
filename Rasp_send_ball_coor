@@ -32,8 +32,11 @@ def detect_yellow_ball():
         hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
 
         # Define the range of yellow color in HSV
-        ball_color_lower = np.array([20, 100, 100])
-        ball_color_upper = np.array([30, 255, 255])
+        # Define the range of yellow color in HSV
+        # gear lab [15, 140, 100],[40, 255, 255]
+        # default [20, 100, 100], [30, 255, 255]
+        ball_color_lower = np.array([15, 140, 100])
+        ball_color_upper = np.array([40, 255, 255])
 
         # Create a mask for yellow color
         mask = cv.inRange(hsv, ball_color_lower, ball_color_upper)
