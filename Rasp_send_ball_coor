@@ -27,12 +27,12 @@ class BallTracker:
             self.prev_x = current_x
             self.prev_y = current_y
             self.prev_time = current_time
-            return 0, 0  # Initial velocity is 0
+            return 0, 0, 0, 0  # Initial velocity is 0
         
         # Calculate time difference in seconds
         dt = current_time - self.prev_time
         if dt == 0:
-            return 0, 0
+            return 0, 0, 0, 0
             
         # Calculate velocity components (pixels per second)
         velocity_x = (current_x - self.prev_x) / dt
