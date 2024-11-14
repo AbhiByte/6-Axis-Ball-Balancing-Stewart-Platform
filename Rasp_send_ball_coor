@@ -106,11 +106,11 @@ def detect_yellow_ball():
                              (0, 255, 0), 2)
                 
                 # Display information
-                print(f"Position: ({int(x)}, {int(y)}), Velocity: ({velocity_x:.2f}, {velocity_y:.2f}) px/s")
+                print(f"Position: ({int(x)}, {int(y)}), Velocity: ({velocity_x:.2f}, {velocity_y:.2f}) px/s, (row, col) = {row, col}")
                 
                 try:
                     # Send position data to Arduino
-                    bus.write_i2c_block_data(ARDUINO_I2C_ADDRESS, MESSAGE_ID, [int(x), int(y), int(velocity_x), int(velocity_y), int(row), int(col)])
+                    bus.write_i2c_block_data(ARDUINO_I2C_ADDRESS, MESSAGE_ID, [int(x), int(y), int(velocity_x), int(velocity_y), row, col])
                     # Optionally send velocity data as well
                     # You might need to scale/convert velocity values to fit in a byte
                 except Exception as e:
