@@ -4,80 +4,124 @@ from smbus2 import SMBus
 import time
 
 # Define I2C address for Arduino
-ARDUINO_I2C_ADDRESS = 0x8  # Ensure this matches the address in your Arduino code
+ARDUINO_I2C_ADDRESS = 0x8
 
 # Initialize I2C bus
-bus = SMBus(1)  # '1' is the I2C bus on most Raspberry Pi models
+bus = SMBus(1)
 
 # Message ID for coordinate data
-MESSAGE_ID = 0x01  # Optional ID for tracking purposes
+MESSAGE_ID = 0x01
 
-# Define a function to detect a yellow ball
+class BallTracker:
+    def __init__(self):
+        self.prev_x = None
+        self.prev_y = None
+        self.prev_time = None
+        # Store multiple previous positions for smoothing
+        self.position_history = []
+        self.velocity_history = []
+        self.history_size = 5  # Number of frames to keep for smoothing
+        
+    def calculate_velocity(self, current_x, current_y, current_time):
+        if self.prev_x is None or self.prev_y is None or self.prev_time is None:
+            self.prev_x = current_x
+            self.prev_y = current_y
+            self.prev_time = current_time
+            return 0, 0  # Initial velocity is 0
+        
+        # Calculate time difference in seconds
+        dt = current_time - self.prev_time
+        if dt == 0:
+            return 0, 0
+            
+        # Calculate velocity components (pixels per second)
+        velocity_x = (current_x - self.prev_x) / dt
+        velocity_y = (current_y - self.prev_y) / dt
+        
+        # Add to velocity history
+        self.velocity_history.append((velocity_x, velocity_y))
+        if len(self.velocity_history) > self.history_size:
+            self.velocity_history.pop(0)
+            
+        # Calculate smoothed velocity
+        smoothed_vx = sum(v[0] for v in self.velocity_history) / len(self.velocity_history)
+        smoothed_vy = sum(v[1] for v in self.velocity_history) / len(self.velocity_history)
+        
+        # Update previous values
+        self.prev_x = current_x
+        self.prev_y = current_y
+        self.prev_time = current_time
+        
+        return velocity_x, velocity_y, smoothed_vx, smoothed_vy
+    
+def find_grid_square(x, y, n=5):
+    cell_size = 256 / n
+    row, col = int (y // cell_size), int(x // cell_size)
+    
+    return row, col
+
 def detect_yellow_ball():
-    # Start capturing video from the webcam
     cap = cv.VideoCapture(0)
     cap.set(cv.CAP_PROP_FPS, 30)
+    tracker = BallTracker()
     
     while True:
-        # Read a frame from the webcam
         ret, frame = cap.read()
         if not ret:
             print("Failed to grab frame")
             break
         
-        # Set the image resolution to 255x255 to keep coordinates within I2C byte range
         frame = cv.resize(frame, (255, 255))
-
-        # Convert the frame to HSV color space
         hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
 
-        # Define the range of yellow color in HSV
-        # Define the range of yellow color in HSV
         # gear lab [15, 140, 100],[40, 255, 255]
         # default [20, 100, 100], [30, 255, 255]
         ball_color_lower = np.array([15, 140, 100])
         ball_color_upper = np.array([40, 255, 255])
-
-        # Create a mask for yellow color
         mask = cv.inRange(hsv, ball_color_lower, ball_color_upper)
-
-        # Find contours in the mask
+        
         contours, _ = cv.findContours(mask, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
 
-        # Find the largest contour
         if contours:
             largest_contour = max(contours, key=cv.contourArea)
             ((x, y), radius) = cv.minEnclosingCircle(largest_contour)
-            if radius > 10:  # Ignore small objects
-                # Draw a circle around the detected ball
+            
+            if radius > 10:
+                
+                # Calculate grid location
+                row, col = find_grid_square(x, y)
+                # Calculate velocity
+                current_time = time.time()
+                velocity_x, velocity_y, _, _ = tracker.calculate_velocity(x, y, current_time)
+                
+                # Draw ball position
                 cv.circle(frame, (int(x), int(y)), int(radius), (0, 255, 255), 2)
                 cv.circle(frame, (int(x), int(y)), 2, (0, 0, 255), -1)
                 
-                # Display coordinates on the console
-                print(f"Yellow ball detected at position: ({int(x)}, {int(y)})")
-
-                # Send coordinates to Arduino over I2C
+                # Draw velocity vector
+                vector_scale = 2.0  # Scale factor to make vector visible
+                end_x = int(x + velocity_x * vector_scale)
+                end_y = int(y + velocity_y * vector_scale)
+                cv.arrowedLine(frame, (int(x), int(y)), (end_x, end_y), 
+                             (0, 255, 0), 2)
+                
+                # Display information
+                print(f"Position: ({int(x)}, {int(y)}), Velocity: ({velocity_x:.2f}, {velocity_y:.2f}) px/s")
+                
                 try:
-                    # Convert coordinates to integers and send as bytes
-                    #bus.write_i2c_block_data(ARDUINO_I2C_ADDRESS, 0, [ int(x), int(y)])
-                    bus.write_i2c_block_data(ARDUINO_I2C_ADDRESS, MESSAGE_ID, [int(x), int(y)])
-
-                    #bus.write_byte(ARDUINO_I2C_ADDRESS, int(x))
-                    #bus.write_byte(ARDUINO_I2C_ADDRESS, int(y))
-                    # 0x01 is an optional message ID for "coordinate data"
+                    # Send position data to Arduino
+                    bus.write_i2c_block_data(ARDUINO_I2C_ADDRESS, MESSAGE_ID, [int(x), int(y), int(velocity_x), int(velocity_y), int(row), int(col)])
+                    # Optionally send velocity data as well
+                    # You might need to scale/convert velocity values to fit in a byte
                 except Exception as e:
                     print(f"I2C Error: {e}")
         
-        # Display the resulting frame
         cv.imshow('frame', frame)
-
-        # Break the loop when 'q' is pressed
         if cv.waitKey(1) & 0xFF == ord('q'):
             break
 
-    # Release the capture and close windows
     cap.release()
     cv.destroyAllWindows()
 
-# Run the ball detection function
-detect_yellow_ball()
+if __name__ == "__main__":
+    detect_yellow_ball()
